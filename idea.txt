@@ -1,0 +1,203 @@
+开发准备 
+
+   在开发前，首先我们要做一些环境准备，这样你可以快速进入这个场景。首先你要安装好IntelliJ IDEA，这里我推荐大家使用IntelliJ IDEA 7.0 M2，你可以通过http://www.jetbrains.com/idea下载。IntelliJ IDEA安装完毕后，你需要安装一个插件开发包，主要用于IntelliJ IDEA的插件开发。下载地址和IntelliJ IDEA相同。 这个开发包包含以下内容：IntelliJ IDEA的Open API和源码，以及一些插件的源码（IntelliJ IDEA的插件源码都在 http://svn.jetbrains.org/idea/Trunk，这些都是你编写插件的很好样例）。当然没有这个插件开发包你可以开发插件，不过我强烈推荐下载这个开发包。开发部下载完毕后，你需要将其解压到IntelliJ IDEA的安装目录下，这样IntelliJ IDEA的SDK创建会很简单。这里要注意一点，插件开发包的版本最好和IntelliJ IDEA的版本相对应。关于IntelliJ IDEA的SDK准备，你可以参考这篇文章：建立IntelliJ IDEA插件开发环境 。 
+   接下来我们启动IntelliJ IDEA来创建一个IntelliJ IDEA SDK，这是开发插件的基础。启动IDEA，打开设置面板，选择”Project Settings"，在弹出的对话框中安装下图进行IntelliJ IDEA SDK设置：
+ 
+这里要有一个注意事项：默认的情况下，新创建的SDK并会将idea.jar包含到classpath中，由于IntelliJ IDEA的Open API不能完全满足你需要的功能，你的插件可能会用到IDEA未公布的API，所以这里建议你检查一下idea.jar文件是否已经被包含，如果没有被包含，请加入这个jar文件。 
+    IntelliJ IDEA的SDK已经被创建了，它是开发插件的基础包。在这里我相对这些jar文件进行一些描述，已方便我们以后的代码编写，毕竟我们代码是要引用其他的开发包的，如果IDEA已经提供，我们就没有必要在找第三方的jar包啦。在$IDEA_HOME/lib下有以下文件需要提一下： 
+      commons-codec-1.3.jar：这个是进行编码转换的开发包，是Apache Commons一个比较重要的开发包； http://commons.apache.org/codec
+      commons-collections.jar： Java Collection扩展框架，对Collection处理更加方便，也是Apache Commons一个比较重要的开发包；  http://commons.apache.org/collections/
+      j2ee.jar和javaee.jar：J2EE开发包，这个不用说啦； http://java.sun.com/javaee/5/docs/api/
+      jdom.jar：XML开发包； http://www.jdom.org
+      trove4j.jar: java.util.Collections的一个实现，更加快速、轻量； http://trove4j.sourceforge.net/
+      velocity.jar: Velocity模板引擎； http://velocity.apache.org
+      xmlrpc-2.0.jar: xml-rpc的开发包； http://ws.apache.org/xmlrpc/
+      xstream.jar: xml/object映射框架； http://xstream.codehaus.org/
+   了解一下这些开发包，可能对后续的开发有不少的帮助。 
+   下面就让我们开始创建一个项目并进行插件开发。首先我们要创建一个项目，这里个人有一个建议：建立一个空的项目，然后添加多个plugin module，这样在一个项目中可以包含多个plugin module，主要的好处就是你可以添加一些参考的插件，这对编写一个新的插件会帮助不少。 
+项目创建后，我们需要添加一个plugin module。只需打开"File" -> "Add Module"然后选择"plugin module"就可以啦，请将module的SDK设置为上面我们创建的IDEA SDK。到这里插件开发的项目就创建完毕啦，你可以开发你的插件啦。 
+ 
+IntelliJ IDEA的IoC介绍 
+
+    当你看到这一章节时，你估计会骂我鸡婆。IoC，这个还要你来告诉我，我用SpringFramework已经很久啦。但我还是要说一下。IDEA整个组件结构是基于PicoContainer（http://www.picocontainer.org)的，PicoContainer是一个高效的嵌入式的DI容器。如果你有时间的话，我建议你花5分钟浏览一下PicoContainer，然后回到这篇文档来。 
+    PicoContainer是有层次结构的，就是一个container可以包含子container，子容器可以访问父容器中的组件，而各个子容器直接是独立的。在IDEA中，主要有三种container：Application, Project和Module，分别包含不同的组件。application container包含多个project container，project container可以包含多个module container，如下图： 
+
+    这样各个project container是独立的，都可以访问application container中的组件；module container也是独立的，可以访问所属project container和application container中的组件。这个图是我们后面理解application component, project component, module component和extension point等等的基础。 
+    PicoContainer的组件注入主要有两种方式:构造注入和Setter注入，但是在IDEA中，目前Setter注入还不支持，全部是构造注入，关于构造注入，PicoContainer推荐最好使用一个构造函数，这点也在IDEA中需要明确。如果你的组件需要引用其他的组件或资源，你最好在组件的构造函数中指定，PicoContainer会帮助你完成资源引用和初始化。 
+   IDEA的这些容器中包含些什么？ 当然首先是各种component，还有就是一些服务，容器中不仅仅是component，还有相关为组件服务的资源，在后面我们也会涉及到对容器中服务资源的讲述。  
+   如果访问这些容器中的组件？在IDEA中，访问application container中的组件可以通过ApplicationManager.getInstance().getComponent(Class T)来进行。通用获得project对象后，你可以访问project容器中的组件；获取module对象后，你可以访问module容器的组件。有了容器后，如何能获取指定的组件？有以下几种方式： 1. 组件ID，组件提供的组件标识符号，可以通过标识符来访问。如果组件没有标识符号，我们称之为匿名组件。 2. 组件的interface类。如果一个组件的是通过interface向外服务的，那么我们可以通过interface来获取对应的组件。如果 interface的实现为多个组件，就会获得多个组件。 
+   如果让我的组件被注册到这些容器中？ 在IDEA中，有三种组件： Application Component， Project Component和Module Component。不用的组件需要继承不同接口，分别为Application Component， ProjectComponent和ModuleComponent，如果你的组件继承了某一接口，将会自动放置到某一容器中，不需要你手动去注册。 
+   组件既然要交给容器去管理，这就牵涉到生命周期的概念，对于Application Component来说，initComponent负责初始化，disposeComponent负责资源清理。对ProjectComponent来说，除了initComponent和disposeComponent，还增加了projectOpened 和projectClosed，这个意思还比较容易理解，就是一个挂钩（hook）。组件一旦被激活，就开始发挥它的作用啦。 
+  组件的行为可能需要设置，如设置不同的参数组件的特性就不一样。如何给组件设置参数？当然可以让组件自身去做，去找一个文件，当文件修改后重新加载。在IDEA中，你不需要这么做，你只需让组件继承Configurable接口，IDEA会将在设置面板中添加一个设置选项，让你设置这个组件的参数，当然包括运行期的，这个好像和JMX相像。 :) 
+  组件的参数设置完毕啦，当容器关闭后，组件带的这些参数需要保存在一个地方，这样当容器重新启动后，组件仍然能向以前一样工作，不然你又得重新设置一下。同样的道理，你可以自己设定逻辑，保存到某一个地方，然后在加载起来。如果IDEA提供了一个 JDOMExternalizable接口，只要实现接口并添加少量的代码，IDEA就会完成component的参数保存和读取的任务。在最新的 IDEA 7.0中，采取了另外一种保存机制，这个我们会在后面进行说明。 
+   讲到这里，你可能会问，有没有一种方面来声明Component？ 这是有的，那就是extension point。extension point是组件的简化方式，它的主要功能是数据信息扩展，它们不需要继承component接口，同时也没有组件标识符号，只需要在 plugin.xml声明就可以，在声明的时候你需要指名是何种类型的组件。下面会有更详细的介绍。 
+  PicoContainer是IDEA基础，因为我们编写的组件都是由容器初始化的，而且组件直接的相互依赖也是有容器完成，所有了解一下PicoContainer还是很有必要的，对插件编写和IDEA的机制都非常有好处。
+Extension Points
+
+   前面讲解了一下extions point，这里想再细化一下。Extension point的主要作用是数据信息扩展和事件监听，也就是一个插件注册了某一extension point，其他插件可以通过extension point为该插件提供数据信息或触发事件逻辑，从而达到影响上一插件中的组件的一些行为。最典型的就是gotoSymbolContributor，我们在各个插件中通过gotoSymbolContributor的声明，提供插件自己的symbol信息给IDEA，这样在按下 Ctrl+Shift+Alt+N时，插件提供的symbol信息就会被提示出来，当然你可以利用这种机制实现其他功能，监听也是一种实现。从用户的角度来看，就是在某些方面，原先的插件功能增加啦。那么如何声明一个extension point呢。这个很简单，只要建立一个Java Integerace，然后在plugin.xml进行什么就可以啦，代码如下： 
+          <extensionPoint name="resourceBundleManager" interface="com.intellij.lang.properties.psi.ResourceBundleManager" area="IDEA_PROJECT"/>     
+   前面说过，extension point是组件的简化方式，这里的area是指组件的类型，如果不指定就是ApplicationComponent，IDEA_PROJECT表示 ProjectComponent，MODULE_PROJECT表示ModuleComponent。声明完成后，我们需要在插件中访问 extension point去获取数据，代码如下： 
+          Object[] extensions = Extensions.getExtensions("plugin_id.testExtPoint"); 
+   这里字符串中的plugin_id表示plugin的id（在xml文件中），testExtPoint就是extension point的name。还有一种就是提供ExtensionPointName，这个可以参考一下Open API，也非常简单。这里返回一个数组，因为可能多个其他插件使用该extension point为该插件提供数据。接下来就是在其他插件应用该extension point啦，三个步骤： 
+     1 首先依赖该插件：  <depends>reliant_plugin_id</depends> 
+     2 创建extension point的interface的实现，java编码即可 
+     3 extension point引用声明，xmlns的值就是所依赖的plugin的id。代码如下： 
+             <extensions xmlns="reliant_plugin_id">     
+                    <testExtPoint implementation="com.foobar.test.impl.Extender"/> 
+            </extensions> 
+   通过这种方式，可以实现插件直接的数据供给，提示原有插件的功能，一个好的插件，如果能定义好一下扩展点，方便其他插件进行扩充，将是非常有益的。 
+   事实上IDEA核心就提供了非常多的extension point，这里你可以扩展IDEA的功能。关于这些扩展点的元信息，请参考：$IDEA_HOME/lib/resources.jar文件的/META-INF/plugin.xml文件。
+Plugin的结构介绍 
+
+    我们应该进入正题啦。Plugin的主要功能扩展IDE的功能，前面我们讲述了IDEA整体结构是基于容器的，那么要扩展IDEA的功能，唯一的方法就是想容器中添加组件，新添加的组件包含自身的一些功能，同时和其他组件进行交互（修改一些参数和特性等），影响其他组件的行为，从而达到功能的扩展目的。那么一个插件中，应该会包含application component, project component和module component。由于还要和用户进行交换，插件还提供了action，也就是和用户进行交换的操作，所以插件的主要内容就是component和 action。这里顺便还聊一句，component是由容器管理的，那么action可不可以也由容器管理呢？这样在action中引用 component将更加方便。目前action还不是由容器管理的，这个主要是由历史原因决定的，不少action的代码还不能转移到容器中管理，不过 IDEA正在做一些工作，相信以后action也可以由容器进行管理。 
+   下面我们要开始插件编写啦。首先我们要设定一下插件的基本信息。插件需要有一个唯一标识符，有一个版本号（便于升级）还有就是适用的IDEA版本。这三项应该说是必需的，其他就是插件的额外信息，如描述，changeLog，作者等等，在plugin.xml设定就可以啦。 
+   完成设定后，我们就需要向插件中添加内容啦。创建Component和Action非常简单，只要通过new group就可以创建。图例如下：
+ 
+这里我们可能还要啰嗦一下，就是关于plugin的目录结构。插件开发包中有一个plugin structure的html文档，已经讲述的非常清楚，这里只是重复一下。一个plugin通常包含plugin.xml，相关的class和引用的第三方jar文件。如何组织这些文件，我推荐以下的结构：插件目录下的lib文件夹保存第三方jar文件（如果没有引用第三方jar，可以没有该目录），classes目录包含插件的代码，META-INF包含 plugin.xml文件，结构如下：
+ 
+使用Maven管理插件项目 
+
+     Maven实际上已经成为Java项目管理的规范，当然这里我们也希望IDEA的插件开发也能通过Maven管理起来。Maven并不难，但是针对 IDEA的插件项目主要有以下问题，可能导致管理有一定的难度：1. IDEA并不是都使用Javac进行代码编译。如果你使用了IDEA的UI Designer，那么你得使用Javac2才能编译这些代码； 2. 开发插件需要的IDEA的jar文件在repo1.maven.org/maven2中没有，你可能需要自己设定repository的位置；3. IDEA的插件需要装配，这个可能是一些web项目，jar项目不具有的。基于这些原因，我想给一个相对标准的pom.xml文件和插件项目的目录结构，目录结构如下图：  
+
+这个目录和标准Maven项目是一致的，不过有一点就是我们将plugin.xml文件放置在src/main/resources目录下，最好形成这样的标准，这对后续的plugin打包分发有帮助。 
+    回到pom.xml文件，其实只需注意一下，IDEA插件开发需要的jar包都在 http://mevenide.codehaus.org/m2-repository/, 所以我们需要设置一下项目的repository的位置。由于还使用了codehaus的一些Maven插件，所以还有设置一下plugin repository的为位置。下面就是设置build plugin，能保证插件项目中的代码能被正确编译，主要就是IDEA的UI Designer的文件编译，其他的和标准的Maven编译选项一致。接下来就是设置dependency，由于插件开发需要的jar包不少都包括在 IDEA SDK(前面我们讲述过)，所有这些dependency的scope设置为provided即可。如果你引用的是IntelliJ IDEA本身的jar包，那可能还有注意一点：由于IDEA的jar包包括正式版本号和编译版本号，所以你可能还有给dependency设置 classifier，这个值就是IDEA的编译版本号，一个典型的dependency声明如下： 
+       <dependency> 
+            <groupId>com.intellij.idea</groupId> 
+            <artifactId>openapi</artifactId> 
+            <version>7.0</version> 
+            <scope>provided</scope> 
+            <classifier>${idea_build_number}</classifier> 
+        </dependency> 
+    因为牵涉到插件要发布出去，所以我们还是需要设置一下如何将插件打包。在Maven中这称之为Assembly，是通过Assembly plugin完成。我们只需要创建Assembly的描述文件，然后在设置一下Assembly插件的配置，最后咨询mvn assembly:assembly就可以啦。一个IDEA插件项目典型的Assembly的描述文件如下所示： 
+    <?xml version="1.0" encoding="utf-8" ?> 
+    <assembly  xmlns="http://maven.apache.org/xsd/assembly" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+         xsi:schemaLocation="http://maven.apache.org/xsd/assemblyhttp://maven.apache.org/xsd/assembly-1.1.0-SNAPSHOT.xsd">        
+        <id/> 
+        <formats> 
+           <format>zip</format> 
+        </formats> 
+        <includeBaseDirectory>false</includeBaseDirectory> 
+        <dependencySets> 
+            <dependencySet> 
+            <outputDirectory>/gmail-plugin/lib</outputDirectory> 
+            <unpack>false</unpack> 
+            <scope>runtime</scope> 
+            <includes> 
+                <include>org.intellij:gmail-plugin</include> 
+                <include>net.sf:jgmail</include> 
+                <include>commons-httpclient:commons-httpclient</include> 
+                <include>commons-logging:commons-logging</include> 
+            </includes> 
+        </dependencySet> 
+     </dependencySets> 
+  </assembly>         
+     在Assembly中出现的artifact，如commons-httpclient需要能在pom.xml中解析得到（只要commons- httpclient处于dependency中就可以），这样我们就可以将IDEA的插件打包成zip文件，这样就可以发布，现在你只要将登录到 http://plugins.intellij.net，然后上传这个zip文件，你的发布就完成啦。    
+IntelliJ IDEA TestCase 
+
+    个人对TDD还是比较推崇的，所以在没有进行开发前，还是先介绍一下如何进行测试。在com.intellij.testFramework包下包含各种 TestCase，你可以进行相关的单元测试。下面我们先看一下IDEA是如何运行TestCase的。IntelliJ IDEA在运行IDEA的TestCase时，会加载当前编辑的插件，这样就会模拟出一个IDEA运行的真实环境，这样你就可以进行各种测试。在实际的开发中，我们经常会PsiFile，VirtualFile等Java类，在plugin的内容组织方面，也主要是Action，Inspection 等，IDEA的test framework都提供了这些TestCase，很方便地测试这些类和组件。IdeaTestCase、LightIdeaTestCase、 PsiTestCase以及InspectionTestCase等都提供很便捷的方式来测试你编写的代码。当然IDEA还没有提供非常全面的测试方案来测试任何代码，这个可能对TestCase设计编写要求会比较高，应该绝大多数情况下，你要自己觉得怎样去编写Unit Test。对于新的插件开发人员，个人建议还是TestCase加Debug合并使用，毕竟这方面的知识我们还是比较欠缺点。参考一下别人编写的 TestCase可能会提升我们编写TestCase的水平。如何使用IDEA test framework提供的TestCase，这个很简单，只要继承响应的TestCase，然后编写代码就可以啦，没有任何特殊的要求。不要害怕，编写几个TestCase，你就有感觉啦。最后说一句，IDETalk插件的Unit Test写的不错，大家可以参考一下，而且IDETalk的作者Kirill Maximov也写了不是关于IDEA下Unit Test的文章。
+开发场景 
+
+   1 开发一个读写文件的Action： 
+          IDEA的设计思路是多线程读单线程写的模式，而且在AnAction中是不能进行写操作的，如果你要在Action中进行写操作，你需要创建一个 Runnable对象，然后交给 ApplicationManager.getApplication().runWriteAction(runnable)去执行。 
+   2 Editor Action： 
+          editor action主要用于操作当前编辑窗口中的内容，通常需要给editor action设置一个EditorWriteActionHandler来完成对editor的操作。EditorModificationUtil提供了不少方法，可以加快开发。如果向想获取光标处的PsiElement对象，需要设置PsiFile的 getElementByOffset(offset）来获取。如果你想进行相关的插入操作，你可能需要创建指定的PsiElement，这个时候 PsiElementFactory可能会帮你不少忙，你可以参考一下PsiElementFactory API，看是否有你需要的东西。 
+  3 Intention Action:  
+          intention action简单地说就是意图操作，IDEA会根据光标所在的位置，进行相关检查，然后提示可以进行相关的操作。intention action需要继承IntentionAction类，需要提供family name(ID标识)和description(显示名称)。在IntentionAction类中，isAvailable判断当前Intention Action是否有效，invoke表示你选择该intention action后执行的动作。PsiElement element = file.findElementAt(editor.getCaretModel().getOffset()); 这个语句用来获取当前光标处的PsiElement。intention action还需要注意的一点，就是我们要在源码根目录建立一个intentionDescriptions的目录，然后在依据family name建立一个子目录，最后添加三个文件：description.html、before.xxx.templates和 after.xxx.template，xxx可以为某一种类型文件的扩展名。如下图所示：
+ 
+最后，我们需要将这个action进行注册，action通常要归属于某一类别。注册有两种方式：代码和声明。代码为：IntentionManager.getInstance().registerIntentionAndMetaData(new FirstIntentionAction(), "category"); 声明方式需要在plugin.xml中指定，代码如下： 
+       <intentionAction> 
+          <className>com.foobar.FirstIntentionAction</className> 
+          <category>category</category> 
+       </intentionAction> 
+  4  Inspection action创建 
+       inspection action就是代码审查action，它可以检查发现代码潜在的错误。如果你留意一下右下角的侦探头像，他就是代码审查员，负责调用各种 inspection action，完成对代码的审查。如果发现潜在的问题，就会给你一个解决方案，你可以选择该方案进行问题修复。在IDEA设置面板中的“Errors”选项，其实就是inspection action的集合，目前IDEA 7.0大概包含800+个inspection action，审查代码的各个方面，对代码质量的提升有很大的帮助。 
+       言归正传，如果编写一个这样的action。首先我们创建一个新的inspection action，它需要实现LocalInspectionTool类。Inspection action需要提供short name（ID标识），display name（显示名）和group display name（所在的组名）, 这样inspection action可以更好地显示。和Intention Action一样，我们需要在源码目录下建立一个inspectionDescription的目录，然后依据short name创建一个html文档，将该inspection的功能进行描述。图例如下： 
+
+    LocalInspectionTool默认是检查Java文件的，如果你想让LocalInspectionTool审查其他文件，你需要重写 LocalInspectionTool类的buildVisitor方法，来审查特定的类型的PsiElement，你可以参考一下 LocalInpsectionTool的源码。前面我们讲到inspection action会提供一个解决问题的方案，在IDEA中这叫QuickFix。当我们检查到一个错误时，我们需要创建一个问题描述，如果有必要的话，需要创建一个quick fix来完成问题修复。注册一个问题，通常提供这四个参数：可能存在错误的PsiElement、警告级别、描述和quickfix。这个可以通过 InspectionManager进行审查问题创建。 
+   目前，我们的Inspection Action已经完成啦，如何注册inspection action？ 和intention action的注册一样，有两种方式：代码和extension point。代码方式：需要创建一个application component，然后继承InspectionToolProvider，只要实现InspectionToolProvider的 getInspectionClasses()方法即可。 extension point：同intention action不一样的是，我们要创建一个类，继承InspectionToolProvider，这个类不必要继承 ApplicationComponent，然后实现InspectionToolProvider的getInspectionClasses()，最后在plugin.xml文件中进行声明，如下： 
+   <inspectionToolProvider implementation="com.intellij.psi.css.CssInspectionsLoader"/>  
+从理论上来说，IDEA是将inspectionToolProvider最为一个application component对待。 
+5. Annotator创建 
+     annotator顾名思义标注，就是给相关的PsiElement加上标识，这个标识涉及到高亮显示、装订栏（装订栏添加图标标识）等等，annotator主要用于标识一些信息。编写annotator，我们需要创建一个类，继承Annotator，然后根据psiElement来判断是否要给element添加标识，主要是和Annotation打交到。最后，我们需要在plugin.xml中进行annotator申明，如下： 
+         <annotator language="JAVA" annotatorClass="cn.org.intellij.webx.ScreenAnnotator"/> 
+6. 设置组件属性和状态保存 
+     前面我们讲过如何保存组件的状态，在这里我们讲述一下IDEA 7.0中的实现方法，可能有点不一样。想要设置一个组件的状态，你需要继承Configurable，这样在设置面板中就会出现一个选项，你可以进行相关的操作。接下来我们需要将设置的状态保存起来，这是我们需要创建另外一个类，专门用于保存设置，我们可以称之为Settings类，这个Settings 类需要PersistentStateComponent类，负责信息的保存和读取。信息的读取是通过一个@State的annotation来设置的。到这里，我们就可以理解啦，一个类用于接收参数设定，一个类用于参数保存和读取，由于该类包含相关参数，所以它就是一个Service，通常将参数进行封装，对外提供服务，代码很简单。接下来就是在plugin.xml中进行声明，我们可以参考一下Ruby插件中的例子： 
+    <projectConfigurable implementation="com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable"/> 
+    <projectService serviceInterface="org.jetbrains.plugins.ruby.settings.RProjectSettings" serviceImplementation="org.jetbrains.plugins.ruby.settings.RProjectSettings"/> 
+下面是@State的描述： 
+    @State( 
+    name = YourPluginConfiguration.COMPONENT_NAME, 
+    storages = {@Storage(id = "your_id", file = "$PROJECT_FILE$")} 
+    ) 
+   在这个例子中我们使用了$PROJECT_FILE$宏，你可以根据组件的类型不同设置不同的宏，如下： 
+   - application-level components (ApplicationComponent): $APP_CONFIG$, $OPTIONS$; 
+   - project-level components (ProjectComponent): $PROJECT_FILE$, $WORKSPACE_FILE$, $PROJECT_CONFIG_DIR$; 
+   - module-level components (ModuleComponent): $MODULE_FILE$ 
+7. gotoClassContributor 
+    在IDEA中，我们通常会按下Ctrl+N或Ctrl+All+Shift+N去寻找类或symbol，如果你想扩展各个功能，如在struts中，查找某一个action的声明，这个时候我们需要扩展这一功能。这个时候我们只需创建一个类，让其继承ChooseByNameContributor，实现 ChooseByNameContributor的方法就可以。接下来就是在plugin.xml中进行声明，可以参考Struts, Ruby的插件： 
+        <gotoSymbolContributor implementation="org.jetbrains.plugins.ruby.ruby.gotoByName.RubySymbolContributor"/> 
+Virtual File, Document 和Psi File 
+
+     在IDEA中，我想对文本的操作可能就是这三个在发挥作用，这三者都可以对文件的内容进行更改。 
+     Virtual File是IDEA的统一文件系统，就向Java的IO一样，我们可以称之为VFS(虚拟文件系统)。有了Virtual File，我们不在需要和传统的文件打交到，取而代之的是VFS。我们对VFS的各种操作，会映射到传统的文件系统上。IDEA中的所有和文件相关的操作都是通过Virtual File进行，这些操作和传统的文件操作差不多，不过更加简单。 
+     Document其实就是Virtual File的内容的字符序列，所以对Document的各种操作都是基于普通文本的。Document的可操作的方法并不多，主要是Document是基于字符序列的，操作起来难度有点大。事实上我们对Document的使用也比较少，通常都是一些信息的简单获取。 
+     Psi File这个是结构化的文件内容呈现，这样我们通过操作结构化的对象，从而达到操作文件内容的目的。这些结构化的对象通常通过一种编程语言来体现，在 IDEA中，就是Java对象，这样我们操作就更加简单。这里我不知道这个例子是否合适，JDom是用Java对象来体现xml文档，这里PsiFile 就是用Java语言来体现各种文件内容。讲到这里可能大家还没有体验PsiFile的好处，我们举一个例子来说明。现在有一个Java文件，那么我们就可以构建一个PsiJavaFile对象，通过该对象，我们可以了解该java文件的一些信息，如package 名称，import语句列表，包含的class。假设我们获取了PsiJavaFile的一个PsiClass对象，我们就可以了解该Java类的各种信息，如名称、注释和包含的函数等等。在这里我们可以更改PsiClass的名称、注释等等，这些修改马上就会反映到文件的内容中。试想一下，如果这一切通过文本分析完成，那将是多么复杂的工作，有了Psi File，这一切就简单啦，操作对象比操作文件内容要可靠简单的多。关于PSI，请参考一些IntelliJ IDEA的插件开发文档，同时我们推荐Psi Viewer这个插件，你可以对IDEA处理内容做更好地理解。如果你想写出好的插件的话，你需要对PSI有较深的理解，虽然我写的很少，但是它的重要性却相当高。
+数据关联结构 
+
+   其实这节不知道如何写？章节的名称也怪怪的。我们都知道IDEA的代码提示、代码导航和代码重构非常强大，这背后的是什么样的数据结构来支撑这些特性。在 IDEA中，通过一种Reference机制可以将很多的事情关联起来。回到上一节所说的，在IDEA中，我们对文件的内容操作，通常都是通过 PsiFile完成的。PsiFile中最小的元素就是PsiElement，由于PSI的设计合理，所以可以将PsiElement进行关联，这样可以实现很多的特性。举一个例子来说吧。 <bean id="personManager" class="com.foobar.PersonManagerImpl"/>这是一个简单xml元素，但是在这个云素中，我们知道class的属性值(XmlAttributeValue, PsiElemnt的子类)是和Java Class类进行关联的。如果我们将将XmlAttributeValue和PsiClass(Java类的Psi结构类型)关联起来，那么我们就可以实现代码提示，导航和重构（当类名更改会更新xml的属性值），这个关联的过程就是Reference的实现。我们通过特定的Reference将这两者关联进行实现，然后进行注册声明，那么我们这种关联就建立起来，我们就会体会到其中的便捷。IDEA包含特定的索引结构，你可以想象一下，项目中文件的内容都存在着一定的关联关系，最后形成一个很大的网来维护这些关联。在IDEA启动时，会花不少的时间来建立索引，来形成这些关联关系，相信大家在打开项目都能体验到这一点。如果建立这些关联关系，有很多中实现方式，主要是PsiReference和ReferenceProvidersRegistry。 PsiReference顾名思义就是建立PsiElement直接的关联，ReferenceProvidersRegistry则完成这些关联的注册和管理。关于这些方面的内容写起来比较琐碎，如果你实现了某一关联，代码提示、导航、重构等都能很好的工作，对你的工作效率提升有很大的帮助。 
+   前面介绍了基本原理，下面我们看一下如何实现常用的几种关联方式。我们前面讲述了PsiReference，但是这里还有一个 PsiReferenceProvider要介绍一下，其实就是对PsiReference的一个封装，因为 ReferenceProvidersRegistry进行注册的时候，只接受PsiReferenceProvider。 PsiReferenceProvider很简单，只需要将指定的PsiReference实例返回即可。 ReferenceProvidersRegistry的对象实例可以通过 ReferenceProvidersRegistry registry = ReferenceProvidersRegistry.getInstance(project); 接下来注册的代码可以在project component初始化的时候完成。下面让我们进行几个样例吧： 
+   1. xml tag的属性值和某一PsiElement进行关联：这种情形很常见，如xmlTag的属性值和java class关联，xmlTag的属性值和java class field关联等等。如果实现这个关联呢。首先我们要找到指定的属性值，通常我们通过三个参数就可以确定： xml的namspace， tag名称和属性名，有了这三个值，我们就可以确定该属性值，下面就是和某一reference provider关联。代码如下： 
+      String[] attributeNames=...; 
+      String tagName=...; 
+      NamespaceFilter namespaceFilter=...; 
+      PsiReferenceProvider referenceProvider=...;  
+     registry.registerXmlAttributeValueReferenceProvider(attributeNames, new ScopeFilter(new ParentElementFilter(new AndFilter(new ClassFilter(XmlTag.class), new AndFilter(new OrFilter(new TextFilter(tagName)), namespaceFilter)), 2)), referenceProvider); 
+     如果你说，这个xml没有namespace，你可能需要根据改xml的特征写一个filter，完成定位的需要。你可以将上述的namespaceFilter替换为你需要的filter即可。 
+   2. xml tag的文本值和某一PsiElement关联： 由于IDEA并没有提供类似 registerXmlAttributeValueReferenceProvider这样的函数，这样xml tag的文本值就没法通过直接api的方式进行。IDEA提供了这样的一个方式： registry.registerReferenceProvider(filter, XmlTag.class, psiReferenceProvider); 你只需要设定filter即可。另外你可以通过registry.registerXmlTagReferenceProvider()也可以进行注册。 
+  3. 字符串和某一PsiElement关联：这种情形也很多，如context.getBean("")，和xml中的bean tag关联，这里的字符串作为函数的参数，有了实际的意义，可能就会和某一个PsiElement关联。这个关联注册很简单， registry.registerReferenceProvider(filter, PsiLiteralExpression.class, psiReferenceProvider);  PsiLiteralExpression.class是文本的代表。这里要注意的是，一定要设置好filter，否则会很其他的代码带来问题。关于字符串和PsiElement关联还要注意一点就是PsiReference的isSoft一定要设置为false，因为IDEA中字符串的默认提示是 property key，还有是classpath中的路径，如果isSoft为false，那么其他的提示将不会出现。 
+   上面的三个是比较常见的。说到这里，因为是要建立关联，必定涉及到更加字符串查找指定的PsiElement。在IDEA中我们可以通过 PsiManager，PsiShortNamesCache和PsiSearchHelper能完成不少的工作。如果还有问题的话，请参考 PsiElement和PsiRecursiveElementVisitor完成查找工作。
+基于xml的框架插件开发指南 
+
+     这一章节可以说有实际的意义，毕竟xml在各种框架中的应用还是毕竟广的（尽管annotation已经替代部分xml的功能）。IntelliJ IDEA提供一个文档主要介绍在IntelliJ IDEA下如何通过DOM方式进行xml操作（http://www.jetbrains.com/idea/documentation/dom-rp.html），这个章节可以说作为中文说明和补充。我不想就细节和大家沟通，主要说的是一个步骤： 
+    1. 创建各种Dom Element及其直接关系，这个在IDEA DOM的文档中有描述。这里我们说一下，根节点需要继承CommonDomModelRootElement，普通节点需要继承 CommonDomModelElement，最好给每一个Dom Element创建对应的实现类，主要是为了扩展。对于实现类，根节点需要实现RootBaseImpl，普通节点实现BaseImpl。 
+    2. 首先我们创建一个DOM File Descriptor，进行Dom File注册，让IDEA能在某一类型的xml和Dom直接进行映射。DomFileDescription提供一个isMyFile()方法，可以帮助我们确定xml文件是否是Dom要求的。接下来在plugin.xml中进行声明： <dom.fileDescription implementation="org.intellij.ibatis.IbatisConfigurationFileDescription"/> 
+    3. 如果有必要的话，给Dom Element创建各种converter； 
+    4. 创建DomModel和DomModelFactory：xml文件是提供基础信息的基石，如果我们想访问xml文件中的信息，可以通过统一的接口去访问，这个就是DomModel和DomModelFactory。DomModel负责和Dom Element之间交互，对外提供服务。而DomModelFactory则创建DomModel，DomModelFacotory能够处理各种情况，准确构建DomModel； 
+    5. 这样我们就完成XML的基本处理。在实际的开发我们可能要参考这些类: DomManager, DomElement, DomUtil, 这些类都在com.intellij.util.xml包下，建议看一下。 
+    6. 总的来说，DOM的操作要比之间操作XmlFile和XmlTag要简单很多，如果你的插件中牵涉到xml操作，考虑一下IDEA DOM是非常有必要的。
+Custom Language Plugin 
+
+  写这节的目的有两点：1. 开发中可能需要各种语言； 2. IntelliJ IDEA中支持语言注入，你编写的这一功能可能被应用到各种地方，提升效率。由于Custom Language Plugin牵涉到很多的内容，如果你对这方面感兴趣，可以先参考一下 http://www.jetbrains.com/idea/plugins/developing_custom_language_plugins.html，了解一下基本原理和自定义语言插件的功能。这里还要说一下就是关于JFlex，通常你需要了解这个工具，它是词法分析器，和IDEA能结合的很好，同时 IDEA也提供了JFlex Plugin，你可以进行JFlex相关的试验。关于这部分内容，在后续我还会更新，主要是想通过一个具体的例子来说明。
+代码提示相关
+
+   如果你想在编辑窗口实现代码提示，通常有三种方式： PsiReference，CompletionData和LookupManager，其中PsiReference，CompletionData是系统直接调用的，而LookupManager需要你手动触发的。PsiReference前面已经介绍过，就是通过PsiElement之间相互关联来进行的。CompletionData则是和某一种语言管理起来，在调用代码提示时会触发这段代码，从而达到提示的目的。LookupManager就完全手动编码方式，就是手动触发一个代码提示框，只不过LookupManager帮你做了很多，而不用关心很多的细节。
+Inspection Action和Intention Action编写注意事项
+
+   在进行Inspection讲解之前，让我看一下Inpsection的结构：
+ 
+在此结构中，我们可以看到一个Inspection需要一个Visitor去访问某一起始点下的各个子PsiElement，在遍历各个 PsiElement的过程中，当发现问题时注册问题描述（ProblemDescription），如果该问题有对应的QuickFix，则将该问题描述和QuickFix关联起来。Inspection的机制如下： 
+   1. Inspection Manager调用某一Inspection来审查某一PsiElement 
+   2. Inpsection会调用visitor去访问该PsiElement的各个子PsiElement 
+   3. 在访问各个子PsiElement时，如果发现了问题，这创建对应的问题描述，如果该问题包含对应的QuickFix，则进行关联 
+   4. 当用户调用quickfix时，触发quickfix的执行 
+在实际的编码中，我们看一下BaseInspection的结构： 
+
+通常一个Inspection只会关注一种问题，基于这个原则，所有错误提示应该是一样的，所以BaseInspection需要你提供一个统一的问题描述。对应同一个问题的解决方法，当然可能有一种或多种，所以BaseInspection提供了buildFix和BuildFixes，你只需要实现一个即可。最后是Visitor的创建，BaseInspection引入了BaseInspectionVisitor，顾名思义就是专门为 inspection做的的visitor，包含了针对Inspecitond的常用方法。Visitor同时包含ProlemsHolder和 Inspection对象，这样在发现问题的时候，马上可以将问题和该inspection对应的解决方法关联起来。这里还有一个 InspectionGadgetsFix，这个类没有太多的解释，主要目的就是去做一些判定，是否可以进行QuickFix操作等。通过这种结构调整，流程和代码就简单了很多，你创建Inspection就容易多啦。 
+同样的原理可用在Intention Action上，在Intention Action中，首先通过一个predicate来进行匹配判断，如果匹配后又专门的处理逻辑进行操作，完成intention action。
+FAQ 
+
+Q: 插件中的图片大小有哪些要求？ 
+A: 在菜单栏中出现的图片要是是16x16的png图片；在设置面板中出现的图片要求是48x48的png图片。这些图片通常都是要求透明的，如果你不知道怎么制作透明的png图片的话，你可以通过ImageMagick提供的命令行行进行操作: >convert  -transparent white logo.png logo_1.png 
+Q: 如何创建Live Template的自定义function？ 
+A: 在Open API里没有涉及到这个方面，你需要参考一下Macro和MacroFactory，Macro是自定义函数的接口，MacroFactory完成注册，你可以参考一下CapitalizeMacro的实现，在Web Service插件中也有例子。 
+Q: 如何访问剪切板？ 
+A：你可以通过CopyPasteManager进行访问，下面是一个想剪切板添加内容的例子。 
+CopyPasteManager copyPasteManager = CopyPasteManager.getInstance (); 
+copyPasteManager.setContents (new StringSelection ("the character string which we would like to copy appointment"));
+参考资源
+
+  这里我不想列出几篇文档，这些文档只能起到扫盲的作用，如果你想开发插件，从扫盲版毕业是远不够的。个人的建议，多看别人的插件，多看论坛的帖子，多看API，多实践。 
+  IntelliJ IDEA官方论坛： http://www.intellij.net/forums
+  Jira for Open API：http://www.jetbrains.net/jira/secure/IssueNavigator.jspa?reset=true&mode=hide&pid=10132&component=10366
+  插件的源码库： http://svn.jetbrains.org/idea/Trunk
+  现在不少项目都在Google Code上安家啦，你可以去Google Code上搜索关于IDEA的插件，然后了解他人的想法和代码，对自己的帮助会很大。
