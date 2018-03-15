@@ -1,0 +1,147 @@
+ 
+手机 
+24小时 
+互联网 
+三文娱 
+智东西 
+创事记 
+生活家 
+新财富 
+车事儿 
+数码 
+
+jkeabc_admin
+2017-01-06 10:27:02 
+· 次浏览 
+#技术教程 #IntelliJ #IDEA #Weex 
+
+1 
+
+0 
+
+
+Intellij IDEA插件开发（五）自定义语言支持
+这一个系列的前面四篇文章对IntelliJ IDEA插件开发的一些基础和通用的方法做了介绍，本篇将会深入一步，从语言结构化支持的角度探究插件 
+这一个系列的前面四篇文章对IntelliJ IDEA插件开发的一些基础和通用的方法做了介绍，本篇将会深入一步，从语言结构化支持的角度探究插件开发的相关技巧。
+依据Wiki的介绍，编程语言是用来定义计算机程序的形式语言。它是一种被标准化的交流技巧，用来向计算机发出指令。编程语言的描述一般可以分为语法及语义。语法是说明编程语言中，哪些符号或文字的组合方式是正确的，语义则是对于编程的解释。
+对语言中语法和语义的分析，就是编译原理里词法分析和语法分析的概念。本篇文章仅会简略介绍针对于完全未知的语言类型的支持，而将更多的重点放在对已有语言类型的继承和扩展支持上。
+针对于插件开发者，推荐一个十分有用的插件 PsiViewer，可以方便地在IDE内查看编辑器内的内容所对应的PsiElement类型，省去了很多查找文档的操作。 
+支持未知类型的语言
+定义基础语言描述
+IDE之所以能仅通过扩展名就能识别出源文件所使用的语言，就是因为IDE内定义的 Language和 FileType为其提供了支持。 
+定义Language
+简单继承 Language类，在构造函数中传入语言ID和其他参数即可。 
+定义文件类型
+继承 LanguageFileType类，在实现的方法中分别返回源文件的名称、描述、默认扩展名和Icon即可。 
+定义FlieTypeFactory
+继承 FileTypeFactory类，在 createFileTypes方法中注册语言，并在plugin.xml的 extensions节点中通过 fileTypeFactory标签注册Factory。 
+完成以上几步后IDE便能通过文件扩展名识别出源文件并为其应用图标。
+定于词法和语法规范
+定义Token和Element
+此处定义的Token和Element分别对应于后续词法分析中的Token和IDE内部表示的PsiElement，继承 IElementType，完成定义。 
+定义语法
+IDEA支持通过BNF范式来定义语法，按照规则编写一个bnf文件，当语法被定义完成后，可以通过IDE生成PsiElement定义和PSI Parser。
+定义Lexer
+词法分析器定义了一个文件的内容是如何被分解为Token的，创建Lexer的一个简单的方式是使用JFlex。定义一个lexer规则文件然后通过IDE即可生成Lexer。
+实现 ParserDefinition接口，创建一个Parser定义，并在plugin.xml中的 extensions节点中使用 lang.parserDefinition标签注册该parser。 
+以上便是为语言做最基础支持的步骤，完成文件类型和语法、词法分析器注册后，IDE便能为自定义语言提供文件识别、关键字检查和语法检查等支持。下面结合对 weex-language-support 插件的开发过程，介绍对扩展了html语法的weex脚本所做的语法高亮、自动提示、Lint等其它一系列的支持的实现。 
+weex语言支持
+识别weex脚本
+由于weex脚本文件的结构和html类似，均包括 <script>、 <style>标签和模板部分，所以我们的Language选择直接继承 HTMLLanguage 
+public class WeexFileType extends LanguageFileType {public static final WeexFileType INSTANCE = new WeexFileType();private WeexFileType() {super(HTMLLanguage.INSTANCE);}//…………}
+定义完FileType之后，还需要实现一个对应的FileTypeFactory：
+public class WeexFileTypeFactory extends FileTypeFactory {@Overridepublic void createFileTypes(@NotNull FileTypeConsumer fileTypeConsumer) {fileTypeConsumer.consume(WeexFileType.INSTANCE);}}
+最后在 plugin.xml内注册 
+<extensions defaultExtensionNs="com.intellij"><fileTypeFactory implementation="com.taobao.weex.WeexFileTypeFactory"/></extensions>
+完成这一步之后，IDE便能正确将以 we作为扩展名的文件识别为weex文件，因为继承了HTMLLanguage，html语言原有的js和css的自动补全和lint规则也将被一并继承过来。 
+支持Weex DSL
+weex定义了一系列的DSL规则，包括自定义标签、自定义标签属性和数据绑定支持等，接下来我们一步步对这些特性进行支持
+自定义标签支持
+要让IDE能正确识别自定义的标签（如 <list>、 <slider>等）并对其应用正确的补全和lint规则，我们需要实现自定义的 XmlTagNameProvider和 XmlElementDescriptorProvider，其中 XmlTagNameProvider定义了所能提供的标签的列表， XmlElementDescriptorProvider定义了每个标签的详情。 
+定义一个 WeexTagNameProvider，实现 XmlTagNameProvider和 XmlElementDescriptorProvider接口： 
+XmlTagNameProvider 
+@Overridepublic void addTagNameVariants(List<LookupElement> list, @NotNull XmlTag xmlTag, String prefix) {if (!(xmlTag instanceof HtmlTag)) {return;}Set<String> tags = getWeexTagNames();for (String s : tags) {LookupElement element = LookupElementBuilder.create(s).withInsertHandler(XmlTagInsertHandler.INSTANCE).withBoldness(true).withIcon(WeexIcons.TYPE).withTypeText("weex component");list.add(element);}
+如此在输入标签的时候IDE就能将weex标签加入自动补全列表中。
+XmlElementDescriptorProvider 
+@Nullable@Overridepublic XmlElementDescriptor getDescriptor(XmlTag xmlTag) {PsiFile declare = getDeclare(xmlTag);return new WeexTagDescriptor(xmlTag.getName(), declare);}
+此处的关键是如何将 XmlTag与它的声明文件即 PsiFile关联起来，此处的桥梁就是 XmlElementDescriptor。创建一个实现了 XmlElementDescriptor的类，在 getDeclaration()方法中返回 PsiFile对象，如此便能在执行 Open Declaeation的时候跳转到该tag的声明文件内。 
+在某些时候，我们的声明文件可能并不是位于某个确定位置的目录内，而是处于归档文件中，此处演示如何从一个jar归档中获取PsiFile的引用：
+public void findPsiFileFromJar(String jarPath, String targetName) {VirtualFile vf = JarFileSystem.getInstance().findLocalVirtualFileByPath(jarPath);VirtualFile target = vf.findChild(targetName);PsiFile declare = PsiManager.getInstance(ProjectUtil.guessProjectForFile(target)).findFile(target);}
+最后，为了应用上述实现的功能，需要在plugin.xml中进行注册：
+<extensions defaultExtensionNs="com.intellij"><xml.tagNameProvider implementation="com.taobao.weex.tags.WeexTagNameProvider"/><xml.elementDescriptorProvider implementation="com.taobao.weex.tags.WeexTagNameProvider"/></extensions>
+自定义标签属性支持
+按照上面的套路，大家肯定能想到标签属性也是有相应的Provider支持的，它就是 XmlAttributeDescriptorsProvider，创建相应的实现类，实现以下方法： 
+getAttributeDescriptors(XmlTag xmlTag) 
+该方法需要返回XmlTag对应的所有属性的Descriptor列表
+getAttributeDescriptor(String s, XmlTag xmlTag) 
+该方法返回名为s的XmlTag所对应的单个Descriptor
+此处的Descriptor为 XmlAttributeDescriptor实例，描述了每个标签属性的信息，创建实现类，实现以下关键方法： 
+getName() 
+返回要匹配的属性名称
+isEnumerated() 
+判断属性值是否是枚举属性
+getEnumeratedValues() 
+如果属性值是可枚举的，此处返回所有可能的属性值
+同样地，最后需要在plugin.xml中进行注册：
+<extensions defaultExtensionNs="com.intellij"><xml.attributeDescriptorsProvider implementation="com.taobao.weex.attributes.WeexAttrDescriptorProvider"/></extensions>
+自动补全支持
+事实上上文所述的标签支持和标签属性支持已经为IDE提供了部分补全所需的支持，例如在输入标签名称和标签属性名时，IDE已经能根据我们提供的Provider和Descriptor提供一些上下文无关的补全提示，接下来我们来提供与上下文相关的补全支持。
+Weex使用双大括号的方式来绑定script中声明的变量，所以我们需要先对script进行分析，得到其中声明的所有变量的函数。此处暂且不对分析JavaScript语言结构进行深入解读，后续有时间单独作文。
+需要补充的一点是，为了让插件支持html语法，需要在plugin.xml中声明对语言模块的依赖：
+<depends>com.intellij.modules.xml</depends><depends>com.intellij.modules.lang</depends><depends>JavaScript</depends>
+并不是所有IDE都包含JavaScript模块，本插件开发过程中选择IDEA 15作为SDK，并手动将 /Applications/IntelliJ IDEA 15.app/Contents/plugins/JavaScriptLanguage目录下的jar文件添加到Project Structure的Classpath中。 
+言归正传，下面开始介绍如何对标签属性值进行自动补全支持。事实上很简单：一个关键的类 CompletionContributor 
+创建一个继承了 CompletionContributor的类，在构造函数中调用 extend()方法添加补全的相关逻辑： 
+extend(@Nullable CompletionType type, @NotNull ElementPattern<? extends PsiElement> place, CompletionProvider provider) 
+CompleteType 
+定义补全类型，此处传入 CompletionType.BASIC即可。 
+ElementPattern 
+定义补全操作需要匹配的目标Element类型，简单来说就是指定在何处该出发自动补全，此处可传入 PlatformPatterns.psiElement(XmlAttributeValue.class)，表示在键入标签属性值时触发补全逻辑。 
+CompletionProvider 
+补全逻辑真正的Provider。
+创建我们自己的CompletionProvider，实现 addCompletions方法： 
+protected void addCompletions(@NotNull CompletionParameters completionParameters, ProcessingContext processingContext, @NotNull CompletionResultSet resultSet) {if (completionParameters.getPosition().getContext() instanceof XmlAttributeValue) {final XmlAttributeValue value = (XmlAttributeValue) completionParameters.getPosition().getContext();for (String s : getCandidateValues(value)) {resultSet.addElement(LookupElementBuilder.create("{{" + s + "}}").withLookupString(s) //匹配查找的字符串.withIcon(WeexIcons.TYPE) //候选列表中显示的icon.withInsertHandler(new InsertHandler<LookupElement>() {@Overridepublic void handleInsert(InsertionContext insertionContext, LookupElement lookupElement) {performInsert(value, insertionContext, lookupElement);}}) // 插入补全内容时的Handler.withBoldness(true) //加粗}}}
+如此就可以在输入标签属性值的时候触发补全逻辑，此处的难点在于如何从js中分析出函数和变量名，并分析出变量的类型和标签属性值的类型是否匹配，处于篇幅限制并未详细解释，如果想了解可以查看 weex-language-support的源码或向我咨询。 
+最后，在plugin.xml中进行注册：
+<extensions defaultExtensionNs="com.intellij"><completion.contributor language="HTML" implementationClass="com.taobao.weex.complection.WeexCompletionContributor"/></extensions>
+CompletionContributor不能支持情况下的补全
+在编写weex插件的过程中，发现CompletionContributor并不能在键入标签内容时触发补全（即 <text>{{value}}</text>的情况），为了支持该种情况下的补全，我们想到了一个tricky的办法： Intention 
+IDEA可以帮助你处理一些代码中可能导致错误的情况，当分析出可能存在问题时，IDEA为提供一个Intention列表，包含一些建议实施的修复或改进的行为。在OSX上，默认可以通过 Command + Enter触发Intention。 
+创建一个 PsiElementBaseIntentionAction，实现以下关键方法： 
+isAvailable(@NotNull Project project, Editor editor, @NotNull PsiElement element) 
+判断当前活动的Element（光标所在Element）处是否可以激活Intention，其中project、editor参数为当前的Project和当前活动的编辑器对象。
+invoke(@NotNull final Project project, final Editor editor, @NotNull PsiElement element) 
+用户触发Intention后需要需要执行的逻辑
+在此处我们依旧获取了js中导出的所有变量，并创建了一个多级下拉框来供用户选择需要插入的变量值。顺带稍微介绍一下IDEA内置的一系列魔改Swing控件，这些控件大部分以 JB开头，例如JBTable，JBColor等，编写插件时使用这些控件能保持与IDE一致的外观风格，让插件没有违和感。此处我们使用 ListPopup控件来实现选择列表，通过 JBPopupFactory.getInstance().createListPopup可以获得相应的ListPopup实例，并且可以调用 ListPopop#showInBestPositionFor方法让ListPopup显示在屏幕上最恰当的位置（光标附近）。 
+还是一样的步骤，往plugin.xml中注册Intention：
+<extensions defaultExtensionNs="com.intellij"><intentionAction><className>com.taobao.weex.intention.TagTextIntention</className><category>Weex</category><descriptionDirectoryName>WeexTagTextCompletion</descriptionDirectoryName></intentionAction></extensions>
+Lint
+Lint是IDE所必须具备的另一项能力，在代码编写阶段，通过分析上下文，找出可能存在的错误或可改进的写法，对用户进行提示，在IDE中，我们熟悉的红色错误下划线，黄色警告下划线都是由Annotator来实现的。创建Annotator的实例，实现 annotate方法 
+annotate(@NotNull PsiElement psiElement, @NotNull AnnotationHolder annotationHolder) 
+其中psiElement是等待进行检查的元素
+创建Annotation
+Annotation分为 Error、 Warning、 WeakWarning、 Info几个级别，对应编辑器中呈现出的各种不同的下划线颜色。使用 AnnotationHolder#createXXXAnnotation方法可以创建一个Annotation实例。 
+附加QuickFix
+如上文所述，IDE可以提供一个Intention列表来提供一些建议执行的修复或优化行为，在Annotation中可以通过 registerFix()方法来附加一个修复动作。 
+Find Usages
+终于快要写完了……
+查找某个变量在工程中的引用是对这个变量执行重构的前提，插件中通过 PsiReferenceContributor和 PsiReference为引用分析提供支持。 
+创建一个继承了 PsiReferenceContributor的实例，在 registerReferenceProviders方法中处理引用查找。 
+@Overridepublic void registerReferenceProviders(@NotNull PsiReferenceRegistrar psiReferenceRegistrar) {psiReferenceRegistrar.registerReferenceProvider(XmlPatterns.xmlTag().withLanguage(HTMLLanguage.INSTANCE).andNot(XmlPatterns.xmlTag().withLocalName("script")) //仅在<template>标签内查找.andNot(XmlPatterns.xmlTag().withLocalName("style")),new PsiReferenceProvider() {@NotNull@Overridepublic PsiReference[] getReferencesByElement(@NotNull PsiElement psiElement, @NotNull ProcessingContext processingContext) {if (psiElement instanceof XmlTag) {if (((XmlTag) psiElement).getSubTags().length == 0) {String text = ((XmlTag) psiElement).getValue().getText();if (WeexFileUtil.containsMustacheValue(text)) {List<PsiReference> references = new ArrayList<PsiReference>();Map<String, TextRange> vars = WeexFileUtil.getVars(text);for (Map.Entry<String, TextRange> entry : vars.entrySet()) {if (WeexFileUtil.getAllVarNames(psiElement).keySet().contains(entry.getKey())) {references.add(new DataReference((XmlTag) psiElement, entry.getValue(), entry.getKey()));}}return references.toArray(new PsiReference[references.size()]);}}}return new PsiReference[0];}});}
+最后在plugin.xml中注册：
+<extensions defaultExtensionNs="com.intellij"><psi.referenceContributor implementation="com.taobao.weex.refrences.WeexReferenceContributor"/></extensions>
+博客开通至今没有发布几篇文章，一方面是不想写大家都写过的，另一方面是写的内容必须要是自己亲自验证过的然后才公开给大家参考，避免以其昏昏使人昭昭，宁缺毋滥，我是这么想的。
+最近工作比较忙，陆陆续续写了挺久终于把这一篇给写完了，记录了weex-language-support插件开发过程中的一些技巧，我发布的更多插件可以参见 此处，所有插件均在我的 Github内开源了代码。感谢各位读者，你们的支持是我完成这一系列文章的动力。后面还会补充一篇文章，介绍其他一些零散的内容，敬请期待。 
+
+
+未登录用户
+ 
+登录 
+
+
+﻿
+微信公众号 官方微博 
+招募编译  广告  加入我们  关于我们  联系我们  投稿须知  寻求报道 
+© 2017剑客 -「科技引领未来」
+鄂ICP备17004543号
+本站由阿里云提供计算与安全服务 
